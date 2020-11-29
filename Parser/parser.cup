@@ -1,0 +1,187 @@
+import java_cup.runtime.*;
+
+parser code {:
+    private Lexer lexer;
+    public parser(Lexer lexer) {
+        this.lexer = lexer;
+    }
+:};
+
+scan with {:
+    return lexer.next_token();
+:};
+
+terminal            EQ, NE, LE, LT, GT, GE, ASSIGN, AND, OR, MINUS, DIV, MOD, PLUS, PROD, DOT, COMMA, NOT, SEMICOLON, LPAREN,
+                    RPAREN, LBRACK, RBRACK, LCURLY, RCURLY, VOID, INT, DOUBLE, BOOL, STRING, CLASS, INTERFACE, NULL, THIS,
+                    EXTENDS, IMPLEMENTS, FOR, WHILE, IF, ELSE, RETURN, BREAK, CONTINUE, NEW, NEWARRAY, PRINT, READINTEGER,
+                    READLINE, DTOI, ITOD, BTOI, ITOB, PRIVATE, PROTECTED, PUBLIC;
+terminal    String  IDENT;
+terminal    Integer INTLITERAL;
+terminal    Double  DOUBLELITERAL;
+terminal    String  STRINGLITERAL;
+terminal    Boolean TRUE, FALSE;
+
+non terminal        Program, Decl, VariableDecl, Variable, Type, Brackets, FunctionDecl, Formals, VarComma1, ClassDecl,
+                    Extends01, Implements01, Ident1, Field01, Field, AccessMode, InterfaceDecl, Prototype1, Prototype,
+                    StmtBlock, VariableDecl0, Stmt0, Stmt, Expr01, IfStmt, WhileStmt, ForStmt, ReturnStmt, BreakStmt,
+                    ContinueStmt, PrintStmt, ExprComma1, Expr, Call, Actuals, Constant;
+
+precedence left LBRACK;
+precedence left COMMA;
+precedence left ASSIGN;
+precedence left OR;
+precedence left AND;
+precedence left EQ, NE;
+precedence left LT, LE, GT, GE;
+precedence left PLUS, MINUS;
+precedence left PROD, DIV, MOD;
+precedence left NOT;
+precedence left LPAREN, RPAREN, DOT;
+
+Program ::= Decl
+            | Decl Program
+            ;
+Decl ::= VariableDecl
+            | FunctionDecl
+            | ClassDecl
+            | InterfaceDecl
+            ;
+VariableDecl ::= Variable SEMICOLON
+            ;
+Variable ::= Type IDENT
+            ;
+Type ::= INT Brackets
+            | DOUBLE Brackets
+            | BOOL Brackets
+            | STRING Brackets
+            | IDENT Brackets
+            ;
+Brackets ::= LBRACK RBRACK Brackets
+            |
+            ;
+FunctionDecl ::= Type IDENT LPAREN Formals RPAREN StmtBlock
+            | VOID IDENT LPAREN Formals RPAREN StmtBlock
+            ;
+Formals ::= Variable VarComma1
+            |
+            ;
+VarComma1 ::= COMMA Variable VarComma1
+            |
+            ;
+ClassDecl ::= CLASS IDENT Extends01 Implements01 LCURLY Field01 RCURLY
+            ;
+Extends01 ::= EXTENDS IDENT
+            |
+            ;
+Implements01 ::= IMPLEMENTS Ident1
+            |
+            ;
+Ident1 ::= IDENT
+            | IDENT COMMA Ident1
+            ;
+Field01 ::= Field Field01
+            |
+            ;
+Field ::= AccessMode VariableDecl
+            | AccessMode FunctionDecl
+            ;
+AccessMode ::= PRIVATE
+             PROTECTED
+             | PUBLIC
+             |
+             ;
+InterfaceDecl ::= INTERFACE IDENT LCURLY Prototype1 RCURLY
+            ;
+Prototype1 ::= Prototype Prototype1
+            |
+            ;
+Prototype ::= Type IDENT LPAREN Formals RPAREN SEMICOLON
+            | VOID IDENT LPAREN Formals RPAREN SEMICOLON
+            ;
+StmtBlock ::= LCURLY VariableDecl0 Stmt0 RCURLY
+            ;
+VariableDecl0 ::= VariableDecl0 VariableDecl
+            |
+            ;
+Stmt0 ::= Stmt Stmt0
+            |
+            ;
+Stmt ::= Expr01 SEMICOLON
+            | IfStmt
+            | WhileStmt
+            | ForStmt
+            | BreakStmt
+            | ContinueStmt
+            | ReturnStmt
+            | PrintStmt
+            | StmtBlock
+            ;
+Expr01 ::= Expr
+            |
+            ;
+IfStmt ::= IF LPAREN Expr RPAREN Stmt
+            |
+            IF LPAREN Expr RPAREN Stmt ELSE Stmt
+            ;
+WhileStmt ::= WHILE LPAREN Expr RPAREN Stmt
+            ;
+ForStmt ::= FOR LPAREN Expr01 SEMICOLON Expr SEMICOLON Expr01 RPAREN Stmt
+            ;
+ReturnStmt ::= RETURN Expr01 SEMICOLON
+            ;
+BreakStmt ::= BREAK SEMICOLON
+            ;
+ContinueStmt ::= CONTINUE SEMICOLON
+            ;
+PrintStmt ::= PRINT LPAREN ExprComma1 RPAREN SEMICOLON
+            ;
+ExprComma1 ::= Expr
+            | Expr COMMA ExprComma1
+            ;
+Expr ::= IDENT ASSIGN Expr
+            | Expr DOT IDENT ASSIGN Expr
+            | Expr LBRACK Expr RBRACK ASSIGN Expr
+            | Constant
+            | IDENT
+            | Expr DOT IDENT
+            | Expr LBRACK Expr RBRACK
+            | THIS
+            | Call
+            | LPAREN Expr RPAREN
+            | Expr PLUS Expr
+            | Expr MINUS Expr
+            | Expr PROD Expr
+            | Expr DIV Expr
+            | Expr MOD Expr
+            | MINUS Expr
+            | Expr LT Expr
+            | Expr LE Expr
+            | Expr GT Expr
+            | Expr GE Expr
+            | Expr EQ Expr
+            | Expr NE Expr
+            | Expr AND Expr
+            | Expr OR Expr
+            | NOT Expr
+            | READINTEGER LPAREN RPAREN
+            | READLINE LPAREN RPAREN
+            | NEW IDENT
+            | NEWARRAY LPAREN Expr COMMA Type RPAREN
+            | ITOD LPAREN Expr RPAREN
+            | DTOI LPAREN Expr RPAREN
+            | ITOB LPAREN Expr RPAREN
+            | BTOI LPAREN Expr RPAREN
+            ;
+Call ::= IDENT LPAREN Actuals RPAREN
+            | Expr DOT IDENT LPAREN Actuals RPAREN
+            ;
+Actuals ::= ExprComma1
+            |
+            ;
+Constant ::= INTLITERAL
+            | DOUBLELITERAL
+            | TRUE
+            | FALSE
+            | STRINGLITERAL
+            | NULL
+            ;
