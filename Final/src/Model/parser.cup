@@ -1,0 +1,597 @@
+package Model;
+import java_cup.runtime.*;
+import Model.AST.expression.*;
+import Model.AST.TypeChecker;
+import Model.scope.*;
+import Model.cg.*;
+import Model.error.*;
+
+parser code {:
+    private Lexer lexer;
+    public parser(Lexer lexer) {
+        this.lexer = lexer;
+    }
+:};
+
+scan with {:
+    return lexer.next_token();
+:};
+
+terminal    String  EQ, NE, LE, LT, GT, GE, ASSIGN, AND, OR, MINUS, DIV, MOD, PLUS, PROD, DOT, COMMA, NOT, SEMICOLON, LPAREN,
+                    RPAREN, LBRACK, RBRACK, LCURLY, RCURLY, VOID, INT, DOUBLE, BOOL, STRING, CLASS, INTERFACE, NULL, THIS,
+                    EXTENDS, IMPLEMENTS, FOR, WHILE, IF, ELSE, RETURN, BREAK, CONTINUE, NEW, NEWARRAY, PRINT, READINTEGER,
+                    READDOUBLE,READLINE, DTOI, ITOD, BTOI, ITOB, PRIVATE, PROTECTED, PUBLIC;
+terminal    String  IDENT, INTLITERAL, DOUBLELITERAL, STRINGLITERAL, TRUE, FALSE;
+
+non terminal            Extends01, Implements01, Ident1, Field01, Field, Prototype1, Prototype,
+                        StmtBlock, VariableDecl0, Stmt0, Stmt, IfStmt, ElseStmt, WhileStmt, ForStmt, ReturnStmt, BreakStmt,
+                        ContinueStmt, Actuals;
+non terminal            Program, Decl, VariableDecl, Variable, FuncVariable, FunctionDecl, ClassDecl, InterfaceDecl, Brackets,
+                        Formals, VarComma1, PrintStmt;
+non terminal String     Type, AccessMode;
+non terminal Expression Constant, Expr, ExprComma1, ExprPrintComma1, Expr01, Call;
+
+precedence left LBRACK;
+precedence left COMMA;
+precedence left ASSIGN;
+precedence left ELSE;
+precedence left OR;
+precedence left AND;
+precedence left EQ, NE;
+precedence left LT, LE, GT, GE;
+precedence left PLUS, MINUS;
+precedence left PROD, DIV, MOD;
+precedence left NOT;
+precedence left LPAREN, RPAREN, DOT;
+
+
+Program ::= Decl
+            | Decl Program
+            ;
+Decl ::= VariableDecl
+            | FunctionDecl
+            | ClassDecl
+            | InterfaceDecl
+            ;
+VariableDecl ::= Variable SEMICOLON
+            ;
+Variable ::= Type:type IDENT:id
+            {:
+                DSCP dscp = new DSCP(type);
+                Spaghetti.addEntry(id, dscp);
+                SemanticStack.push(type);
+                SemanticStack.push(id);
+                CodeGen.cgen("varDecl");
+                Spaghetti.currIDwoAccessMode = id;
+            :}
+            ;
+Type ::= INT Brackets {: RESULT = "INT"; :}
+            | DOUBLE Brackets {: RESULT = "DOUBLE"; :}
+            | BOOL Brackets {: RESULT = "BOOL"; :}
+            | STRING Brackets {: RESULT = "STRING"; :}
+            | IDENT:s Brackets {: RESULT = s; :}
+            ;
+Brackets ::= LBRACK RBRACK Brackets
+            |
+            ;
+FunctionDecl ::= Type:t IDENT:id
+            {:
+                Spaghetti.enterScope(id);
+                CodeGen.textSeg += id + ":\n";
+                DSCP funcdscp = new FunctionDSCP(t);
+                Spaghetti.addEntry(id, funcdscp);
+                Spaghetti.currIDwoAccessMode = id;
+            :}
+            LPAREN Formals
+            {:
+                ArgumentChecker.declReset(id);
+                ArgumentChecker.popArguments();
+            :}
+            RPAREN StmtBlock
+            {:
+                Spaghetti.exitScope();
+                if(id.equals("main") && t.equals("INT"))
+                    CodeGen.cgen("endMain");
+                else
+                    CodeGen.cgen("endFunc");
+            :}
+            | VOID:t IDENT:id
+            {:
+                Spaghetti.enterScope(id);
+                CodeGen.textSeg += id + ":\n";
+                DSCP funcdscp = new FunctionDSCP(t);
+                Spaghetti.addEntry(id, funcdscp);
+                ArgumentChecker.declReset(id);
+                ArgumentChecker.popArguments();
+                Spaghetti.currIDwoAccessMode = id;
+            :}
+            LPAREN Formals
+            {:
+                ArgumentChecker.declReset(id);
+                ArgumentChecker.popArguments();
+            :}
+            RPAREN StmtBlock
+            {:
+                Spaghetti.exitScope();
+                CodeGen.cgen("endFunc");
+            :}
+            ;
+Formals ::= FuncVariable VarComma1
+            |
+            ;
+VarComma1 ::= COMMA FuncVariable VarComma1
+            |
+            ;
+FuncVariable ::= Type:type IDENT:id
+            {:
+                Spaghetti.current.addArgToDSCP(id, type);
+                SemanticStack.push(type);
+                SemanticStack.push(id);
+                CodeGen.cgen("varDecl");
+            :}
+            ;
+ClassDecl ::= CLASS IDENT:id
+            {:
+                Spaghetti.enterScope(id);
+                CodeGen.textSeg += id + ":\n";
+            :}
+            Extends01 Implements01 LCURLY Field01 RCURLY
+            ;
+Extends01 ::= EXTENDS IDENT
+            |
+            ;
+Implements01 ::= IMPLEMENTS Ident1
+            |
+            ;
+Ident1 ::= IDENT
+            | IDENT COMMA Ident1
+            ;
+Field01 ::= Field
+            {:
+
+            :}
+            Field01
+            |
+            ;
+Field ::= AccessMode:a VariableDecl
+            {:
+                Spaghetti.setAccessMode(Spaghetti.currIDwoAccessMode,a);
+            :}
+            | AccessMode:a FunctionDecl
+            {:
+                Spaghetti.enterScope(Spaghetti.currIDwoAccessMode);
+                Spaghetti.setAccessMode(Spaghetti.currIDwoAccessMode,a);
+                Spaghetti.exitScope();
+            :}
+            ;
+AccessMode ::= PRIVATE:s {: RESULT = s; :}
+             | PROTECTED:s {: RESULT = s; :}
+             | PUBLIC:s {: RESULT = s; :}
+             | {: RESULT = "protected"; :}
+             ;
+InterfaceDecl ::= INTERFACE IDENT LCURLY Prototype1 RCURLY
+            ;
+Prototype1 ::= Prototype Prototype1
+            |
+            ;
+Prototype ::= Type IDENT LPAREN Formals RPAREN SEMICOLON
+            | VOID IDENT LPAREN Formals RPAREN SEMICOLON
+            ;
+StmtBlock ::= LCURLY VariableDecl0 Stmt0 RCURLY
+            ;
+VariableDecl0 ::= VariableDecl0 VariableDecl
+            |
+            ;
+Stmt0 ::= Stmt Stmt0
+            |
+            ;
+Stmt ::= Expr01 SEMICOLON:sem
+            {:
+                CodeGen.cgen(sem);
+            :}
+            | IfStmt
+            | WhileStmt
+            | ForStmt
+            | BreakStmt
+            | ContinueStmt
+            | ReturnStmt
+            | PrintStmt
+            | StmtBlock
+            ;
+Expr01 ::= Expr:e {: RESULT = e;:}
+            | {: RESULT = new Constant(null, "VOID");:}
+            ;
+IfStmt ::= IF LPAREN Expr:e
+            {:
+                SemanticStack.push(e);
+                CodeGen.cgen("condExpr");
+                CodeGen.textSeg += "  beq $t2, $zero, L" + CodeGen.label + "\n";
+                CodeGen.label++;
+            :}
+            RPAREN Stmt
+            {:
+                CodeGen.textSeg += "  j LEnd" + CodeGen.endlabel + "\n";
+                CodeGen.endlabel++;
+            :}
+            ElseStmt
+            {:
+                if(CodeGen.endlabel > CodeGen.maxendlabel)
+                    CodeGen.maxendlabel = CodeGen.endlabel;
+                CodeGen.endlabel--;
+                CodeGen.textSeg += "LEnd" + CodeGen.endlabel+ ": \n";
+                if(CodeGen.endlabel == 0)
+                    CodeGen.endlabel = CodeGen.maxendlabel;
+            :}
+            ;
+ElseStmt ::= ELSE
+            {:
+                CodeGen.textSeg += "L" + (CodeGen.label - 1) + ": \n";
+            :}
+            Stmt
+            |
+            {:
+                CodeGen.textSeg += "L" + (CodeGen.label - 1) + ": \n";
+            :}
+            ;
+WhileStmt ::= WHILE
+            {:
+                CodeGen.textSeg += "L" + CodeGen.label + ": \n";
+                CodeGen.startlabel = CodeGen.label;
+                CodeGen.label++;
+            :}
+            LPAREN Expr:e
+            {:
+                SemanticStack.push(e);
+                CodeGen.cgen("condExpr");
+                CodeGen.textSeg += "  beq $t2, $zero, LEnd" + CodeGen.endlabel + "\n";
+                CodeGen.endlabel++;
+            :}
+            RPAREN Stmt
+            {:
+                CodeGen.textSeg += "  j L" + CodeGen.startlabel + "\n";
+                CodeGen.textSeg += "LEnd" + (CodeGen.endlabel-1) + ": \n";
+            :}
+            ;
+ForStmt ::= FOR LPAREN Expr01 SEMICOLON
+            {:
+                CodeGen.cgen(";");
+                CodeGen.textSeg += "L" + CodeGen.label + ": \n"; //start-1
+                CodeGen.label++;
+            :}
+            Expr:e1
+            {:
+                SemanticStack.push(e1);
+                CodeGen.cgen("condExpr");
+                CodeGen.textSeg += "  beq $t2, $zero, LEnd" + CodeGen.endlabel + "\n";
+                CodeGen.endlabel++;
+
+                CodeGen.textSeg += "  j L" + (CodeGen.label+1) + "\n"; //jump to start+1 (start of stmt)
+                CodeGen.textSeg += "L" + CodeGen.label + ": \n";
+                CodeGen.startlabel = CodeGen.label; //start is set to start of 3rd expr
+                CodeGen.label++;
+            :}
+            SEMICOLON Expr01
+            {:
+                CodeGen.cgen(";");
+                CodeGen.textSeg += "  j L" + (CodeGen.startlabel-1) + "\n"; //jump to start-1 (2nd expr)
+                CodeGen.textSeg += "L" + CodeGen.label + ": \n";
+                CodeGen.label++;
+            :}
+            RPAREN Stmt
+            {:
+                CodeGen.textSeg += "  j L" + CodeGen.startlabel + "\n"; //jump to 3rd expr
+                CodeGen.textSeg += "LEnd" + (CodeGen.endlabel-1) + ": \n";
+            :}
+            ;
+ReturnStmt ::= RETURN Expr01:e SEMICOLON
+            {:
+                String t1 = Spaghetti.current.getReturnType();
+                TypeChecker.canReturn(t1, e.getType());
+                if(e instanceof Constant){
+                    if(e.getType().equals("INT") || e.getType().equals("BOOL"))
+                        CodeGen.textSeg += "  li $v0, " + e.getValue() + "\n";
+                    else if(e.getType().equals("DOUBLE")){
+                        CodeGen.textSeg += "  li.d $f4, " + e.getValue() + "\n";
+                        CodeGen.textSeg += "  sub $sp, $sp, 8\n  s.d $f4, 0($sp)\n";
+                    }
+                }
+                else if(e instanceof DSCP){
+                    String id = (String) SemanticStack.pop();
+                    if (e.getType().equals("INT") || e.getType().equals("BOOL")) {
+                        CodeGen.textSeg += "  lw $v0, " + id + "_" + Spaghetti.getScope(id) + "($zero)\n";
+                    }
+                    else if (e.getType().equals("DOUBLE")) {
+                        CodeGen.textSeg += "  l.d $f4, " + id + "_" + Spaghetti.getScope(id) + "($zero)\n";
+                        CodeGen.textSeg += "  sub $sp, $sp, 8\n  s.d $f4, 0($sp)\n";
+                    }
+                }
+                else if(e instanceof ArithLogExpr){
+                    if(e.getType().equals("INT") || e.getType().equals("BOOL"))
+                        CodeGen.textSeg += "  move $v0, $t2 \n";
+                    else if(e.getType().equals("DOUBLE")){
+                        CodeGen.textSeg += "  sub $sp, $sp, 8\n  s.d $f4, 0($sp)\n";
+                    }
+                }
+            :}
+            ;
+BreakStmt ::= BREAK SEMICOLON {: CodeGen.textSeg += "  j LEnd" + (CodeGen.endlabel - 1) +"\n";:}
+            ;
+ContinueStmt ::= CONTINUE SEMICOLON {: CodeGen.textSeg += "  j L" + CodeGen.startlabel +"\n";:}
+            ;
+PrintStmt ::= PRINT LPAREN ExprPrintComma1 RPAREN SEMICOLON {:CodeGen.cgen("PrintNL");:}
+            ;
+ExprPrintComma1 ::= Expr:e
+            {:
+                SemanticStack.push(e);
+                if(TypeChecker.hasPrintOp(e.getType()))
+                    CodeGen.cgen("Print");
+            :}
+            | Expr:e
+            {:
+                SemanticStack.push(e);
+                if(TypeChecker.hasPrintOp(e.getType()))
+                    CodeGen.cgen("Print");
+            :}
+            COMMA ExprPrintComma1
+            ;
+Expr ::= IDENT:id ASSIGN:sem Expr:e
+            {:
+                Assignment.assign(id,e);
+                RESULT = Spaghetti.getDSCP(id);
+            :}
+            | Expr LBRACK Expr:e RBRACK
+            {: if(!e.getType().equals("INT")) throw new SemanticError("array index should be int"); :}
+            | Expr LBRACK Expr:e RBRACK ASSIGN Expr
+            {: if(!e.getType().equals("INT")) throw new SemanticError("array index should be int"); :}
+            | Constant:c
+            {:
+                RESULT = c;
+            :}
+            | IDENT:id
+            {:
+                DSCP dscp = Spaghetti.getDSCP(id);
+                if(dscp == null)
+                    throw new SemanticError("variable " + id + " doesn't exist");
+                else
+                {
+                    SemanticStack.push(id);
+                    RESULT = dscp;
+                }
+            :}
+            | Expr DOT IDENT:id
+            {:
+                /*DSCP dscp = Spaghetti.getDSCP(id);
+                if(CodeGen.isThis){
+                    dscp = Spaghetti.getParentDSCP(id);
+                }
+                if(dscp == null)
+                    throw new SemanticError("variable " + id + " doesn't exist");
+                else
+                {
+                    SemanticStack.push(".");
+                    SemanticStack.push(id);
+                    RESULT = dscp;
+                }*/
+            :}
+            | Expr DOT IDENT:id ASSIGN Expr:e
+            {:
+                /*DSCP dscp = Spaghetti.getDSCP(id);
+                if(CodeGen.isThis){
+                    dscp = Spaghetti.getParentDSCP(id);
+                }
+                if(dscp == null)
+                    throw new SemanticError("variable " + id + " doesn't exist");
+                else
+                {
+                    SemanticStack.push(".");
+                    SemanticStack.push(id);
+                    //Assignment.assign(id,e);
+                    //RESULT = Spaghetti.getDSCP(id);
+                }*/
+            :}
+            | THIS {:SemanticStack.push("this");:}
+            | Call:c {:RESULT = c;:}
+            | LPAREN Expr:e RPAREN {:RESULT = e;:}
+            | Expr:e1 PLUS:sem Expr:e2
+            {:
+                RESULT = new ArithLogExpr(e1,e2,e1.getType());
+                if(TypeChecker.hasSumOp(e1.getType(),e2.getType()))
+                    CodeGen.cgen(sem);
+            :}
+            | Expr:e1 MINUS:sem Expr:e2
+            {:
+                RESULT = new ArithLogExpr(e1,e2,e1.getType());
+                if(TypeChecker.hasArithCompOp(e1.getType(),e2.getType()))
+                    CodeGen.cgen(sem);
+            :}
+            | Expr:e1 PROD:sem Expr:e2
+            {:
+                RESULT = new ArithLogExpr(e1,e2,e1.getType());
+                if(TypeChecker.hasArithCompOp(e1.getType(),e2.getType()))
+                    CodeGen.cgen(sem);
+            :}
+            | Expr:e1 DIV:sem Expr:e2
+            {:
+                RESULT = new ArithLogExpr(e1,e2,e1.getType());
+                if(TypeChecker.hasArithCompOp(e1.getType(),e2.getType()))
+                    CodeGen.cgen(sem);
+            :}
+            | Expr:e1 MOD:sem Expr:e2
+            {:
+                RESULT = new ArithLogExpr(e1,e2,e1.getType());
+                if(TypeChecker.hasModOp(e1.getType(),e2.getType()))
+                    CodeGen.cgen(sem);
+            :}
+            | MINUS:sem Expr:e2
+            {:
+                Constant e1 = new Constant(0, e2.getType());
+                RESULT = new ArithLogExpr(e1,e2,e1.getType());
+                CodeGen.cgen(sem);
+            :}
+            | Expr:e1 LT:sem Expr:e2
+            {:
+                RESULT = new ArithLogExpr(e1,e2,"BOOL");
+                if(TypeChecker.hasArithCompOp(e1.getType(),e2.getType()))
+                    CodeGen.cgen(sem);
+            :}
+            | Expr:e1 LE:sem Expr:e2
+            {:
+                RESULT = new ArithLogExpr(e1,e2,"BOOL");
+                if(TypeChecker.hasArithCompOp(e1.getType(),e2.getType()))
+                    CodeGen.cgen(sem);
+            :}
+            | Expr:e1 GT:sem Expr:e2
+            {:
+                RESULT = new ArithLogExpr(e1,e2,"BOOL");
+                if(TypeChecker.hasArithCompOp(e1.getType(),e2.getType()))
+                    CodeGen.cgen(sem);
+            :}
+            | Expr:e1 GE:sem Expr:e2
+            {:
+                RESULT = new ArithLogExpr(e1,e2,"BOOL");
+                if(TypeChecker.hasArithCompOp(e1.getType(),e2.getType()))
+                    CodeGen.cgen(sem);
+            :}
+            | Expr:e1 EQ:sem Expr:e2
+            {:
+                RESULT = new ArithLogExpr(e1,e2,"BOOL");
+                if(TypeChecker.hasEqualOp(e1.getType(),e2.getType()))
+                    CodeGen.cgen(sem);
+            :}
+            | Expr:e1 NE:sem Expr:e2
+            {:
+                RESULT = new ArithLogExpr(e1,e2,"BOOL");
+                if(TypeChecker.hasEqualOp(e1.getType(),e2.getType()))
+                    CodeGen.cgen(sem);
+            :}
+            | Expr:e1 AND:sem Expr:e2
+            {:
+                RESULT = new ArithLogExpr(e1,e2,"BOOL");
+                if(TypeChecker.hasLogicOp(e1.getType(),e2.getType()))
+                    CodeGen.cgen(sem);
+            :}
+            | Expr:e1 OR:sem Expr:e2
+            {:
+                RESULT = new ArithLogExpr(e1,e2,"BOOL");
+                 if(TypeChecker.hasLogicOp(e1.getType(),e2.getType()))
+                     CodeGen.cgen(sem);
+             :}
+            | NOT:sem Expr:e1
+            {:
+                RESULT = new ArithLogExpr(e1,e1,"BOOL");
+                if(TypeChecker.hasLogicOp(e1.getType(),e1.getType()))
+                    CodeGen.cgen(sem);
+            :}
+            | READINTEGER:s {: CodeGen.cgen(s); RESULT = new Read("INT");:} LPAREN RPAREN
+            | READLINE:s {: CodeGen.cgen(s); RESULT = new Read("STRING"); :} LPAREN RPAREN
+            | READDOUBLE:s {: CodeGen.cgen(s); RESULT = new Read("DOUBLE"); :} LPAREN RPAREN
+            | NEW IDENT
+            | NEWARRAY LPAREN Expr:e COMMA Type:t RPAREN
+            {:
+                if(!e.getType().equals("INT")) throw new SemanticError("array index should be int");
+                if(!(t.equals("INT") || t.equals("BOOL") || t.equals("DOUBLE") || t.equals("STRING")))
+                    throw new SemanticError("bad array type");
+            :}
+            | ITOD:s LPAREN Expr:e RPAREN
+            {:
+                if(e.getType().equals("INT")){
+                    if(e instanceof Constant){
+                        CodeGen.textSeg += "  li $t2, " + e.getValue() +"\n";
+                    }
+                    else if(e instanceof DSCP){
+                        String id = (String) SemanticStack.pop();
+                        CodeGen.textSeg += "  lw $t2, " + id + "_" + Spaghetti.getScope(id) + "($zero)\n";
+                    }
+                    CodeGen.cgen(s);
+                    RESULT = new ArithLogExpr("DOUBLE");
+                }
+                else
+                    throw new SemanticError("can't cast");
+            :}
+            | DTOI:s LPAREN Expr:e RPAREN
+            {:
+                if(e.getType().equals("DOUBLE")){
+                    if(e instanceof Constant){
+                        CodeGen.textSeg += "  li.s $f4, " + e.getValue() +"\n";
+                    }
+                    else if(e instanceof DSCP){
+                        String id = (String) SemanticStack.pop();
+                        CodeGen.textSeg += "  l.s $f4, " + id + "_" + Spaghetti.getScope(id) + "($zero)\n";
+                    }
+                    CodeGen.cgen(s);
+                    RESULT = new ArithLogExpr("INT");
+                }
+                else
+                    throw new SemanticError("can't cast");
+            :}
+            | ITOB:s LPAREN Expr:e RPAREN
+            {:
+                if(e.getType().equals("INT")){
+                    if(e instanceof Constant){
+                        CodeGen.textSeg += "  li $t2, " + e.getValue() +"\n";
+                    }
+                    else if(e instanceof DSCP){
+                        String id = (String) SemanticStack.pop();
+                        CodeGen.textSeg += "  lw $t2, " + id + "_" + Spaghetti.getScope(id) + "($zero)\n";
+                    }
+                    CodeGen.cgen(s);
+                    RESULT = new ArithLogExpr("BOOL");
+                }
+                else
+                    throw new SemanticError("can't cast");
+            :}
+            | BTOI:s LPAREN Expr:e RPAREN
+            {:
+                if(e.getType().equals("BOOL")){
+                    if(e instanceof Constant){
+                        CodeGen.textSeg += "  li $t2, " + e.getValue() +"\n";
+                    }
+                    else if(e instanceof DSCP){
+                        String id = (String) SemanticStack.pop();
+                        CodeGen.textSeg += "  lw $t2, " + id + "_" + Spaghetti.getScope(id) + "($zero)\n";
+                    }
+                    RESULT = new ArithLogExpr("INT");
+                }
+                else
+                    throw new SemanticError("can't cast");
+            :}
+            ;
+Call ::= IDENT:id {: ArgumentChecker.callReset(id); :}
+            LPAREN Actuals RPAREN
+            {:
+                ArgumentChecker.completeArgs();
+                RESULT = new ArithLogExpr(Spaghetti.getFunctionDSCP(id).getType());
+            :}
+            | Expr DOT IDENT LPAREN Actuals RPAREN
+            ;
+Actuals ::= ExprComma1
+            |
+            ;
+ExprComma1 ::= Expr:e1 {: ArgumentChecker.checkArgument(e1); :}
+            | Expr:e1 {: ArgumentChecker.checkArgument(e1); :} COMMA ExprComma1
+            ;
+Constant ::= INTLITERAL:n
+            {:
+                RESULT = new Constant(Integer.parseInt(n), "INT");
+            :}
+            | DOUBLELITERAL:n
+            {:
+                RESULT = new Constant(Double.parseDouble(n), "DOUBLE");
+            :}
+            | TRUE
+            {:
+                RESULT = new Constant(1, "BOOL");
+            :}
+            | FALSE
+            {:
+                RESULT = new Constant(0, "BOOL");
+            :}
+            | STRINGLITERAL:n
+            {:
+                RESULT = new Constant(n, "STRING");
+            :}
+            | NULL
+            {:
+                RESULT = new Constant(null, "NULL");
+            :}
+            ;
